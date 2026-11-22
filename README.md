@@ -9,6 +9,12 @@ device packages for gfx1201 to SGLang's AMD image, plus ten small source patches
 fix bugs that showed up on this card, three make it faster. Nothing is re-quantised: the weights are the
 published ones.
 
+**Original precision, nothing cut down.** This serves the checkpoint exactly as Thinking Machines publishes
+it: attention, router and output-layer weights in 16-bit (BF16), the expert layers in the 4-bit and 8-bit
+formats they ship in (NVFP4, MXFP8), and a 16-bit KV cache by default. Nothing is converted to GGUF and no
+16-bit layer is reduced to 8 bits for speed. The one lossy setting is the optional 8-bit KV cache (`KV=fp8`),
+which is off unless you ask for it.
+
 **Status: unofficial and experimental.** Tested on one machine. Not affiliated with Thinking Machines,
 the SGLang project or AMD. Version 0.1.0, 22 November 2026.
 
@@ -27,6 +33,7 @@ Measured on one R9700 that drives no display (the monitor is on the CPU's integr
 | Reading a 29K-token prompt | 8 s (3,620 tok/s); a repeated prompt comes from the cache |
 | Context | 117,888 tokens; 235,776 with the 8-bit KV cache (`KV=fp8`) |
 | Requests at once | 4 |
+| Weights | the published checkpoint, unmodified (16-bit dense layers, vendor's 4-bit / 8-bit expert layers) |
 | Images | yes |
 | Start-up | about 100 s |
 | Peak VRAM | about 30.6 GB |
