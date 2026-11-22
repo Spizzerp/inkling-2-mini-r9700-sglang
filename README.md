@@ -31,6 +31,7 @@ Measured on one R9700 that drives no display (the monitor is on the CPU's integr
 | Writing prose | 63-70 tok/s |
 | Tool-call turns | about 200 tok/s |
 | Reading a 29K-token prompt | 8 s (3,620 tok/s); a repeated prompt comes from the cache |
+| At 100K tokens of context | cold read 33 s, then about 85 tok/s on a code task and 55 on prose (table below) |
 | Context | 117,888 tokens; 235,776 with the 8-bit KV cache (`KV=fp8`) |
 | Requests at once | 4 |
 | Weights | the published checkpoint, unmodified (16-bit dense layers, vendor's 4-bit / 8-bit expert layers) |
@@ -41,6 +42,37 @@ Measured on one R9700 that drives no display (the monitor is on the CPU's integr
 
 Speeds are at temperature 1 with the lowest reasoning setting and vary by about 10% with what the model
 writes. How everything was measured, and more numbers: [docs/RESULTS.md](docs/RESULTS.md).
+
+## Speed with long context
+
+Temperature 0, 400 tokens written, the context is Python source followed by a task (`tools/ctx_bench.py`).
+"Cold read" is the time to read the whole prompt with nothing cached; a follow-up on the same context
+normally starts in under a second.
+
+Default cache (up to 118K tokens):
+
+| Context | Cold read | Code task | Prose task | Time per pass, code / prose |
+|---|---|---|---|---|
+| 1K | 0.3 s | 87 tok/s | 64 tok/s | 32.3 / 29.5 ms |
+| 9K | 2.4 s | 84 | 66 | 32.7 / 30.7 |
+| 32K | 8.7 s | 91 | 58 | 35.3 / 31.2 |
+| 64K | 19.4 s | 82 | 58 | 37.6 / 33.7 |
+| 100K | 33.0 s | 85 | 55 | 40.0 / 36.0 |
+
+8-bit cache (`KV=fp8`, up to 235K tokens):
+
+| Context | Cold read | Code task | Prose task | Time per pass, code / prose |
+|---|---|---|---|---|
+| 1K | 0.3 s | 86 tok/s | 59 tok/s | 33.1 / 29.8 ms |
+| 36K | 11.2 s | 78 | 61 | 35.3 / 32.4 |
+| 99K | 40.0 s | 70 | 54 | 38.4 / 35.7 |
+| 149K | 70.1 s | 70 | 52 | 42.4 / 38.7 |
+| 199K | 108.2 s | 87 | 50 | 45.8 / 41.9 |
+
+A pass takes about 24% longer at 100K than at 1K and about 38% longer at 199K. The time per pass is the
+steady measure: tokens per second on the code task also moves with how many drafted tokens an answer happens
+to accept. At 100K on the default cache (85% of its capacity) a follow-up request was once read again in
+full instead of coming from the cache; for sessions that stay near 100K, use the 8-bit cache.
 
 ## Requirements
 
@@ -76,6 +108,7 @@ The model reasons before every answer, even at `reasoning_effort: none`; `low` k
 python3 tools/gsm8k.py http://127.0.0.1:18991 mine --n 400 --parallel 4   # expect about 388/400, no answer at the token limit
 python3 tools/gsm8k.py http://127.0.0.1:18991 mine-padded --n 240 --parallel 4 --pad 250 --waves
 python3 tools/accept_ab.py http://127.0.0.1:18991 mine 0                  # tokens per pass, ms per pass, tok/s
+python3 tools/ctx_bench.py http://127.0.0.1:18991                          # reading and writing speed at 1K to 100K context
 ```
 
 Run the gate before trusting any change to the patches: kernel-level equality checks and single-request

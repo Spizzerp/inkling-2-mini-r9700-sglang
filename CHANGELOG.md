@@ -1,5 +1,11 @@
 # Changelog
 
+## After 0.1.0
+
+- Documentation: speed at 1K to 199K tokens of context for both cache settings; the weight precision stated
+  prominently. No change to the patches or the image.
+- `tools/ctx_bench.py`: measures reading and writing speed by context depth.
+
 ## 0.1.0 (22 November 2026)
 
 First release. Base: `lmsysorg/sglang:inkling-2-mini-mi35x` as of 20 November 2026
