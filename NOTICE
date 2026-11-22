@@ -1,0 +1,4 @@
+Inkling 2 Mini on a Radeon AI PRO R9700 through SGLang
+This repository contains build scripts and source patches for SGLang (Apache License 2.0,
+github.com/sgl-project/sglang). It contains no SGLang source, no model weights and no AMD software;
+the Dockerfile downloads those from their publishers.
