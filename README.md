@@ -5,9 +5,10 @@ mixture-of-experts, text and image input, Apache-2.0) from its original weights 
 R9700 (32 GB, gfx1201), using SGLang with draft mode (DSpark).
 
 SGLang supports this model on AMD only for MI350X/MI355X. This repository is a Dockerfile that adds AMD's
-device packages for gfx1201 to SGLang's AMD image, plus ten small source patches: four make it run, three
-fix bugs that showed up on this card, three make it faster. Nothing is re-quantised: the weights are the
-published ones.
+device packages for gfx1201 to SGLang's AMD image, plus eleven small source patches and two build steps:
+four patches make it run, three fix bugs that showed up on this card, three make it faster, and the last
+patch with the two build steps cuts the start from about 100 s to about 47 s. Nothing is re-quantised: the
+weights are the published ones.
 
 **Original precision, nothing cut down.** This serves the checkpoint exactly as Thinking Machines publishes
 it: attention, router and output-layer weights in 16-bit (BF16), the expert layers in the 4-bit and 8-bit
@@ -16,7 +17,7 @@ formats they ship in (NVFP4, MXFP8), and a 16-bit KV cache by default. Nothing i
 which is off unless you ask for it.
 
 **Status: unofficial and experimental.** Tested on one machine. Not affiliated with Thinking Machines,
-the SGLang project or AMD. Version 0.1.0, 22 November 2026.
+the SGLang project or AMD. Version 0.1.1, 23 November 2026.
 
 Source and issues: https://github.com/Spizzerp/inkling-2-mini-r9700-sglang ·
 mirror: https://huggingface.co/spizzerp/inkling-2-mini-r9700-sglang
@@ -36,7 +37,7 @@ Measured on one R9700 that drives no display (the monitor is on the CPU's integr
 | Requests at once | 4 |
 | Weights | the published checkpoint, unmodified (16-bit dense layers, vendor's 4-bit / 8-bit expert layers) |
 | Images | yes |
-| Start-up | about 100 s |
+| Start-up | about 47 s (about 100 s in 0.1.0); the first start after a build about 3 minutes |
 | Peak VRAM | about 30.6 GB |
 | GSM8K (first 400 test questions, temperature 0) | 388/400, against 389/400 with draft mode off |
 
@@ -97,7 +98,11 @@ docker stop sglang-inkling
 
 `run.sh` settings (environment variables): `MODEL_DIR`, `PORT`, `NAME`, `KV=fp8` (8-bit KV cache, twice the
 context, reads 10-20% slower, lossy), `DRAFT=0` (no draft mode, about 61 tok/s for everything), `ADAPT=0`
-(adaptive verify length off). Extra arguments go to `sglang.launch_server`.
+(adaptive verify length off), `WARMUPS=2` (two warm-up passes per recorded GPU graph as in stock SGLang; the
+start takes 10 s longer), `CACHE_DIR`. Extra arguments go to `sglang.launch_server`.
+
+The server is ready when `GET /health` answers 200. `/v1/models` answers about 5 s earlier, while the server
+is still running its own warm-up request; a request sent in that gap is slow.
 
 The model reasons before every answer, even at `reasoning_effort: none`; `low` keeps that short.
 
@@ -127,6 +132,9 @@ tests passed here while the served model was losing 20 points.
 | 8 | `patch_attn_res_no_readback.py` | A kernel that stored a tile and read it back in the same launch sometimes got stale data on this card |
 | 9 | `patch_expert_fp16.py` | 4-bit expert layers computed in FP16 instead of BF16: that kernel 1.3x faster, bit-identical |
 | 10 | `patch_adaptive_verify.py`, `r9700_adaptive_verify.py` | Draft mode checks fewer drafted tokens per pass while few are being accepted: prose 11-14% faster, code unchanged |
+| 11 | `prebuild_aiter_gfx1201.py` (build step) | Three kernel modules that were recompiled for this card at every start are compiled once into the image: start 100 s to 64 s |
+| 12 | Dockerfile only (build step) | The Rust toolchain SGLang asks for at every start is installed in the image instead of downloaded each time: 64 s to 58 s, and a start no longer needs internet |
+| 13 | `patch_graph_warmups.py` | One warm-up pass before each recorded GPU graph instead of two (`WARMUPS=2` restores two): 58 s to 47 s |
 
 Details, evidence and how each was found: [docs/PATCHES.md](docs/PATCHES.md). Patches 3, 5, 6 and 8 look
 like bugs in SGLang or the ROCm stack rather than anything specific to this setup; they have not been
@@ -144,7 +152,10 @@ reported upstream yet.
   model deliberates on for 600 to 2,850 tokens with or without the patch). See docs/RESULTS.md.
 - Other kernels with the store-then-read-back pattern of patch 8 exist (in the expert routing) and are
   unchanged; they passed a test that fills every such buffer with NaN.
-- Start-up takes about 100 s every time.
+- The first start after a build takes about 3 minutes (177 s here) while the kernel cache in `CACHE_DIR`
+  fills; later starts take about 47 s.
+- Patch 13 runs each GPU graph once instead of twice before recording it. The accuracy gates, long-context
+  answers and speeds were the same with one pass and with two; `WARMUPS=2` is there if you see otherwise.
 
 ## Licence and credits
 

@@ -1,7 +1,8 @@
 # Results and how they were measured
 
 Machine: Radeon AI PRO R9700 32 GB (gfx1201), Intel Core i9-13900K, display on the integrated graphics,
-Linux 7.2, rootless Docker. One request at a time unless stated. 22 November 2026, image of release 0.1.0.
+Linux 7.2, rootless Docker. One request at a time unless stated. 22 November 2026, image of release 0.1.0,
+except the section on 0.1.1.
 
 ## Speed
 
@@ -26,6 +27,46 @@ a 5,000-token file rewrite 148, tool-call turns 200-209.
 Draft mode off (`DRAFT=0`): 61 tok/s for everything, 16.4 ms per token.
 Reading: a 29K-token prompt in 8 s (3,620 tok/s); 3,217 tok/s with the 8-bit cache; a repeated prompt in
 0.12 s. A 120K-token prompt with one fact to recall: answered correctly in 53 s (8-bit cache).
+
+## Start-up and the 0.1.1 check
+
+Time from `docker run` to the first `GET /health` answering 200:
+
+| Build | Seconds (separate starts) |
+|---|---|
+| 0.1.0 | 105.5, 98.3, 99.2; 100.4 with the 8-bit cache |
+| + three kernel modules compiled into the image | 63.6, 63.6, 63.1, 64.0 |
+| + Rust toolchain in the image | 57.6, 57.8 |
+| + one warm-up pass per graph (0.1.1) | 47.5, 47.5, 47.0, 47.5; 47.7 with the 8-bit cache |
+
+The table is from the development image, whose patched files are identical to this release's. The release
+build started with `run.sh` (23 November): 177 s for the first start with an empty kernel cache
+(`CACHE_DIR`), then 47.5, 47.5 and 47.0 s; 48.0 and 48.0 s with the 8-bit cache; 57.8 and 57.8 s with
+`WARMUPS=2`. Two other starts, taken straight after the accuracy gate, took 4 s longer (52.1 s with the 8-bit
+cache, 61.0 s with `WARMUPS=2`). On that build: an image request answered correctly, GSM8K 388/400 and
+234/240 padded by 250 tokens with no request errors, and the fixed prompts of the Speed section at 104.8
+tok/s (code) and 64.6 (prose).
+
+0.1.1 changes nothing that runs once the server is up, apart from how often each graph ran before it was
+recorded. It was compared with the 0.1.0 build in alternating runs at temperature 0, where this benchmark
+repeats to within about 0.2% (six fixed prompts of 512 tokens, two of them code; "four at once" is the
+total):
+
+| | 0.1.0 (2 runs) | 0.1.1 (4 runs; code from 2) |
+|---|---|---|
+| Code prompts | 100.0, 99.8 tok/s | 99.6, 99.8 |
+| Prose prompts | 69.7, 69.5 | 69.4 to 69.5 |
+| Four requests at once | 139.7, 139.6 | 139.4 to 139.6 |
+| Reading 3.3K tokens | 3,933, 3,933 tok/s | 3,920 to 3,926 |
+| Reading 25.6K tokens | 3,767, 3,765 | 3,753 to 3,767 |
+
+Reading came out 0.3% lower on 0.1.1 in three of the four runs, with one warm-up pass and with two; the cause
+was not found. In two 0.1.1 runs the first code prompt overlapped the server's own warm-up request (the
+benchmark had waited for `/v1/models` instead of `/health`), so their code figures are left out.
+
+Accuracy gate on 0.1.1: 388/400 (the same as 0.1.0), 236/240 padded, 234/240 padded with the 8-bit cache, no
+request errors. Four prompts with facts to recall at 72K tokens gave the same answers on both builds; single
+facts at 105K (default cache) and 181K tokens (8-bit cache) were recalled correctly.
 
 ## Speed by context depth
 

@@ -7,8 +7,11 @@
 #   KV=fp8      8-bit KV cache: about 235K tokens of context instead of 118K, reads 10-20% slower
 #   DRAFT=0     turn draft mode (DSpark) off: about 61 tok/s for everything
 #   ADAPT=0     turn the adaptive verify length off
+#   WARMUPS=2   two warm-up passes before each recorded GPU graph, as in stock SGLang (default 1; start 10 s longer)
 #   IMAGE       default sglang-inkling-r9700
-# The server takes about 100 s to start (it compiles and records its GPU graphs every time).
+# The server takes about 47 s to start (the first start after a build takes longer: it fills the kernel cache
+# in CACHE_DIR, default ~/.cache/sglang-r9700). It is ready when GET /health answers 200; /v1/models answers
+# about 5 s earlier, while the server still runs its own warm-up request.
 # Stop it with: docker stop $NAME
 set -euo pipefail
 name="${NAME:-sglang-inkling}"; port="${PORT:-18991}"; cache="${CACHE_DIR:-$HOME/.cache/sglang-r9700}"
@@ -28,7 +31,7 @@ exec docker run -d --name "$name" --network host \
   -v "$cache/triton:/root/.triton" -v "$cache/cache:/root/.cache" \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
   -e SGLANG_INKLING2_ALLOW_UNVALIDATED_ROCM=1 -e ROCM_QUICK_REDUCE_QUANTIZATION=NONE \
-  -e R9700_VERIFY_ADAPT="${ADAPT:-1}" \
+  -e R9700_VERIFY_ADAPT="${ADAPT:-1}" -e R9700_GRAPH_WARMUPS="${WARMUPS:-1}" \
   "${IMAGE:-sglang-inkling-r9700}" \
   python3 -m sglang.launch_server --model-path /model --served-model-name inkling-2-mini \
     --host 127.0.0.1 --port "$port" --tp 1 --ep 1 --attention-backend triton --dtype bfloat16 --page-size 128 \

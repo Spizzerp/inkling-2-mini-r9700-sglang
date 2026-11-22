@@ -78,6 +78,35 @@ With the length pinned at 8 (`R9700_VERIFY_FORCE_LEN=8`) output is identical to 
 costs 0.1 ms more. SGLang's own per-request mode (`SGLANG_RAGGED_VERIFY_MODE=cap-accept`) works on this card
 too but its host-side planning idles the GPU about 1.1 ms per pass, and its `compact` variant crashes.
 
+## Start-up (0.1.1)
+
+Where the 100 s of a start went, from the timestamps of the server log and a stack sampler: 34 s compiling
+three kernel modules, 6 s downloading a Rust toolchain, 28 s recording GPU graphs, 5 s for the server's own
+warm-up request, the rest imports, tokenizers, weights and cache pools.
+
+**11. `prebuild_aiter_gfx1201.py` (build step).** The base image ships aiter's kernel modules built for
+gfx950. On another chip aiter sees that a module has no code for the running GPU and rebuilds it into the
+container's file system, which is discarded with the container: `module_custom_all_reduce`,
+`module_rmsnorm_quant` and `module_sample`, 42 s of compiling at every start. The build step compiles the
+same three with `GPU_ARCHS=gfx1201`, which needs no GPU, and checks that each result carries gfx1201 code.
+If a later base image rebuilds other modules, the server log names them ("rebuilding for gfx1201").
+
+**12. Rust toolchain (Dockerfile only).** SGLang's prefix-cache extension runs `cargo --version` in its Rust
+workspace at every start. The workspace pins Rust 1.92 and the image holds only `stable`, so rustup
+downloaded 600 MB each time, and a start without internet waited on it. Running the same two commands
+during the build installs the toolchain.
+
+**13. `patch_graph_warmups.py`.** `capture_one` in `full_cuda_graph_backend.py` runs every graph twice
+unrecorded and a third time while recording it; with 50 prompt sizes up to 4,096 tokens that was 27 s.
+`R9700_GRAPH_WARMUPS=1` (set by `run.sh`) runs one unrecorded pass. The recorded graph is the same sequence
+of kernel launches either way. Checked with one pass against two on the same image: GSM8K 388/400 and
+236/240 padded, 234/240 padded on the 8-bit cache, identical long-context answers, and the same speeds to
+within 0.3% (docs/RESULTS.md). Unset or `2` leaves SGLang's behaviour unchanged.
+
+Left alone: recording fewer prompt sizes (`--cuda-graph-bs-prefill`) would save another 5 to 7 s, but a
+prompt whose last chunk falls between two recorded sizes is padded to the next one, up to about 70 ms more
+per request.
+
 ## Tried without gain
 
 Draft length other than 8 as a fixed setting (prose +14%, code -17%); `GPU_MAX_HW_QUEUES` and 24 other ROCm

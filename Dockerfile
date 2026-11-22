@@ -1,6 +1,7 @@
 # Inkling 2 Mini on a Radeon AI PRO R9700 (gfx1201) through SGLang.
 # SGLang's AMD image for this model is built for MI350X/MI355X (gfx950) only. This adds AMD's device packages
-# for gfx1201 (same ROCm and PyTorch versions) and ten small source patches; docs/PATCHES.md explains each.
+# for gfx1201 (same ROCm and PyTorch versions), eleven small source patches and two build steps that shorten
+# the start; docs/PATCHES.md explains each.
 # The patches assert on the exact source text they change, so the base image is pinned by digest.
 ARG BASE=lmsysorg/sglang@sha256:f53f969460964a88a203b41c8ac52efcd1cb99954f7d49c57489a3b4d761228a
 FROM ${BASE}
@@ -28,3 +29,13 @@ RUN python3 /tmp/r9700/patch_attn_res_no_readback.py
 RUN python3 /tmp/r9700/patch_expert_fp16.py
 # 10. Adaptive verify length in draft mode. Off unless R9700_VERIFY_ADAPT=1 (run.sh sets it).
 RUN python3 /tmp/r9700/patch_adaptive_verify.py
+# 11. Start-up: three aiter modules ship built for gfx950 only, so aiter recompiled them for gfx1201 at every
+#     start (about 40 s, lost with the container). Compile them once here; this needs no GPU.
+RUN GPU_ARCHS=gfx1201 python3 /tmp/r9700/prebuild_aiter_gfx1201.py
+# 12. Start-up: SGLang runs `cargo --version` in its Rust workspace at every start. The workspace pins a
+#     toolchain the base image lacks, so rustup downloaded it each time (600 MB; a start needed internet).
+#     Running the same commands here installs it once.
+RUN cd /sgl-workspace/sglang/rust && cargo --version --verbose && rustc -vV
+# 13. Start-up: warm-up passes before each graph capture become a setting. Unchanged (two) unless
+#     R9700_GRAPH_WARMUPS=1 (run.sh sets it).
+RUN python3 /tmp/r9700/patch_graph_warmups.py
