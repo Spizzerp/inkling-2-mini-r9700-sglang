@@ -107,6 +107,50 @@ Left alone: recording fewer prompt sizes (`--cuda-graph-bs-prefill`) would save 
 prompt whose last chunk falls between two recorded sizes is padded to the next one, up to about 70 ms more
 per request.
 
+## Draft shortlist (0.1.2)
+
+A profile of one draft pass (SGLang's `/start_profile`, every launch averaged by its position in the pass)
+showed that the draft model reads the whole vocabulary twice: one projection of its 7 hidden rows through
+the main model's output layer for its base logits (201,024 x 2,304 BF16, 926 MB, 1.5 ms) and, for each of the
+7 proposed tokens, its folded low-rank head (201,024 x 256, 103 MB, 0.19 ms each). Both run at the card's
+memory read speed already, so the only way to make them cheaper is to read less.
+
+**14. `patch_draft_shortlist.py`, `r9700_draft_shortlist.py`, `draft_shortlist_32k.bin`.** With
+`R9700_DRAFT_SHORTLIST=FILE` (set by `run.sh`) the draft model keeps compact copies of the listed rows of the
+output layer and of its folded head (156 MiB for 32,000 tokens) and computes its base logits and step biases
+over those. Each step's add, softcap and argmax or sample is SGLang's own `MarkovSampleStep` over the list;
+the winning position is mapped back to a token id (the list is in ascending id order, so ties break as in
+the full walk). For the sampling accept the step logits are written into the full-width buffer it reads,
+with -inf for every token off the list: that is exactly the distribution the draft sampled from, so
+speculative sampling stays exact at any temperature. The main model, the verify pass and the accept rule are
+untouched; a token off the list is never proposed and the main model's own token is committed there, as
+after any rejected draft. Five hooks in two files; with the variable unset nothing else runs.
+
+- The list: tokens ranked by frequency in 240,000 tokens of the model's own answers to 388 prompts (code in
+  14 languages, file rewrites, tool calls, config files, prose) and in 85 million tokens of public code and
+  documentation, plus the 58 control tokens. Tested on 91 other prompts.
+- Before building it the effect was measured by adding an offset to the draft's base logits inside the
+  recorded graph, so that it could only propose listed tokens: 32,000 tokens cost 1.0% +/- 0.7 more passes,
+  16,000 cost 4.5%. A 32,000 list misses 0.4% of the confirmed draft tokens on code and 2.8% on prose.
+  The real build then reproduced that emulated run exactly (91 of 91 answers, every pass).
+- The compact copies are made after SGLang has sized the KV cache pool (in `ensure_propose_staging`); made
+  when the list is read they took 2% of the context length.
+- The adaptive verify length (patch 10) needs the time of a pass at each check length; `run.sh` passes the
+  re-measured table (`R9700_VERIFY_COST_MS`, 2.4 ms lower at every length).
+- `tools/test_draft_shortlist.py` compares the path with SGLang's own on a synthetic head: identical tokens
+  and step logits with a list of the whole vocabulary at temperature 0 and 1, identical to the masked
+  full path with a sublist, and at temperature 1 the drafted token follows the softmax of the listed logits.
+  Run it with no server up:
+  `docker run --rm -v /sys:/sys:ro --device /dev/kfd --device /dev/dri --group-add video --ipc host -e SGLANG_INKLING2_ALLOW_UNVALIDATED_ROCM=1 -v $PWD/tools/test_draft_shortlist.py:/tmp/t.py:ro --entrypoint python3 sglang-inkling-r9700 /tmp/t.py`
+- Your own list: `SHORTLIST=/path/to/ids.bin`, raw little-endian int32 token ids (ids past the vocabulary
+  limit and duplicates are dropped; at least 1,024).
+
+Limits. The list is English and code. The vocabulary has 19,700 Han and 7,900 Hangul tokens and the list
+holds 485 and 279 of them: Chinese and Japanese prose lost 11% and 4% (one prompt each), while Spanish,
+German, French, Russian and Hebrew gained 4 to 16%. A longer fixed list does not repair that (16,000 more
+tokens taken from translated software messages in 24 languages bring Chinese from 33% to 19% of confirmed
+tokens off the list); adding each conversation's own tokens to the list would, and is not built.
+
 ## Tried without gain
 
 Draft length other than 8 as a fixed setting (prose +14%, code -17%); `GPU_MAX_HW_QUEUES` and 24 other ROCm

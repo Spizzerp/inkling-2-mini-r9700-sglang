@@ -1,6 +1,6 @@
 # Inkling 2 Mini on a Radeon AI PRO R9700 (gfx1201) through SGLang.
 # SGLang's AMD image for this model is built for MI350X/MI355X (gfx950) only. This adds AMD's device packages
-# for gfx1201 (same ROCm and PyTorch versions), eleven small source patches and two build steps that shorten
+# for gfx1201 (same ROCm and PyTorch versions), twelve small source patches and two build steps that shorten
 # the start; docs/PATCHES.md explains each.
 # The patches assert on the exact source text they change, so the base image is pinned by digest.
 ARG BASE=lmsysorg/sglang@sha256:f53f969460964a88a203b41c8ac52efcd1cb99954f7d49c57489a3b4d761228a
@@ -39,3 +39,8 @@ RUN cd /sgl-workspace/sglang/rust && cargo --version --verbose && rustc -vV
 # 13. Start-up: warm-up passes before each graph capture become a setting. Unchanged (two) unless
 #     R9700_GRAPH_WARMUPS=1 (run.sh sets it).
 RUN python3 /tmp/r9700/patch_graph_warmups.py
+# 14. Draft mode: the draft model proposes from a list of 32,000 tokens instead of the whole vocabulary of
+#     201,024, so its two vocabulary-wide reads shrink to a sixth (a pass 2.4 ms shorter, about 1% more
+#     passes). Off unless R9700_DRAFT_SHORTLIST names the list (run.sh sets it).
+RUN python3 /tmp/r9700/patch_draft_shortlist.py
+RUN mkdir -p /opt/r9700 && cp /tmp/r9700/draft_shortlist_32k.bin /opt/r9700/draft_shortlist_32k.bin

@@ -1,7 +1,7 @@
 """Accuracy gate: score a model on GSM8K test questions through an OpenAI-compatible endpoint.
 
-usage: gsm8k.py URL LABEL [--n 400] [--parallel 4] [--model NAME] [--effort low] [--pad TOKENS]
-Temperature 0. The same first N questions every time, so runs are comparable question by question.
+usage: gsm8k.py URL LABEL [--n 400] [--parallel 4] [--model NAME] [--effort low] [--pad TOKENS] [--temperature T]
+Temperature 0 unless given. The same first N questions every time, so runs are comparable question by question.
 Writes results/LABEL.json (per-question correctness) and prints the accuracy.
 With N = 400 and accuracy near 94%, one run's standard error is about 1.2 points: this catches a broken
 kernel, not a half-point drift.
@@ -16,6 +16,7 @@ ap.add_argument("--model", default="inkling-2-mini"); ap.add_argument("--effort"
 ap.add_argument("--flush-on-burst", default=None, metavar="ADMIN_KEY", help="when 4 of the last 6 answers are wrong, call /flush_cache once ('-' for no key)")
 ap.add_argument("--waves", action="store_true", help="send requests in simultaneous groups of --parallel, so the server prefills them as one batch")
 ap.add_argument("--pad", type=int, default=0, help="prepend about this many tokens of unrelated text, unique per question")
+ap.add_argument("--temperature", type=float, default=0.0, help="default 0; above 0 the run is no longer repeatable question by question")
 a = ap.parse_args()
 rows = [json.loads(l) for l in open(os.path.join(HERE, "data", "gsm8k-test.jsonl"))][: a.n]
 
@@ -50,7 +51,7 @@ def ask(i):
         rng = random.Random(1000 + i)
         filler = " ".join(rng.choice(WORDS) for _ in range(int(a.pad * 0.8)))
         q = (f"Reference notes {i} (unrelated to the question, ignore them): {filler}.\n\nQuestion: " + q)
-    body = {"model": a.model, "temperature": 0, "max_tokens": 3000, "chat_template_kwargs": {"reasoning_effort": a.effort},
+    body = {"model": a.model, "temperature": a.temperature, "max_tokens": 3000, "chat_template_kwargs": {"reasoning_effort": a.effort},
             "messages": [{"role": "user", "content": q + "\n\nSolve this. Finish with a final line of the form: Answer: <number>"}]}
     for attempt in range(2):
         try:

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.2 (23 November 2026)
+
+Writing about 7% faster. Same base image and patches as 0.1.1; added:
+
+- Patch 14 (`patches/patch_draft_shortlist.py`, `r9700_draft_shortlist.py`, `draft_shortlist_32k.bin`): the
+  draft model proposes from a fixed list of 32,000 tokens instead of the whole vocabulary of 201,024 and
+  reads only those rows of the output layer and of its own head. A pass is 2.4 ms shorter and about 1% more
+  passes are needed: over 91 test prompts code +8%, prose +9%, everything +7%; four requests at once +7%.
+  The main model, its precision and the accept rule are unchanged.
+- `run.sh`: `SHORTLIST=0` turns it off (the server then gives the same text as 0.1.1), `SHORTLIST=FILE` uses
+  your own list; with the list on it also passes the pass times the adaptive verify length needs.
+- Slower with the list: Chinese and Japanese prose (11% and 4% on one prompt each). At temperature 0 the
+  wording of most answers differs from 0.1.1, and single prompts can be slower.
+- `tools/test_draft_shortlist.py`: checks the shortlist path against SGLang's own on a synthetic head.
+  `tools/gsm8k.py`: `--temperature`.
+- Accuracy gates: 390/400, 235/240 padded, 389/400 at temperature 1, 234/240 padded with the 8-bit cache.
+  Context length and start-up time unchanged; 156 MiB more VRAM.
+
 ## 0.1.1 (23 November 2026)
 
 Start-up from about 100 s to about 47 s. Same base image, same ten patches as 0.1.0; added:
